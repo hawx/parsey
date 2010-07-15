@@ -74,9 +74,16 @@ class Parsey
         i.split('>') unless i.nil?
       }.flatten!
       
+      parts.collect! {|i| 
+        i.split('}') unless i.nil?
+      }.flatten!
+      
       parts.collect! {|i|
         i.gsub!(/[^a-zA-Z0-9]/, '') unless i.nil?
       }
+      
+      parts.delete_if {|i| i == ''}
+      
       return parts
     else
       parts = []
@@ -94,10 +101,9 @@ class Parsey
   #   the data retrieved from +to_parse+
   #
   def parse
-    order = self.order
     @to_parse.match( self.regex ).captures.each_with_index do |item, i|
-      unless order[i].nil?
-        @data[ order[i] ] = item
+      unless self.order[i].nil?
+        @data[ self.order[i] ] = item
       end
     end
     @data
