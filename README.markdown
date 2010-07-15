@@ -8,6 +8,10 @@ The pattern uses {} to surround the name of the regex it should be replaced with
 also use <> to surround parts of the pattern that are optional, though these obviously
 must be nested properly.
 
+## Install
+
+    (sudo) gem install parsey
+
 ## Example
 
     partials = {'folder'    => '([a-zA-Z0-9-]+)', 

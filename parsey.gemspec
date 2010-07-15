@@ -24,6 +24,7 @@ Gem::Specification.new do |s|
      "Rakefile",
      "VERSION",
      "lib/parsey.rb",
+     "parsey.gemspec",
      "test/helper.rb",
      "test/test_parsey.rb"
   ]
