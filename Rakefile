@@ -5,8 +5,8 @@ begin
   require 'jeweler'
   Jeweler::Tasks.new do |gem|
     gem.name = "parsey"
-    gem.summary = %Q{TODO: one-line summary of your gem}
-    gem.description = %Q{TODO: longer description of your gem}
+    gem.summary = %Q{Parsey matches strings to patterns}
+    gem.description = %Q{Parsey matches a string with a pattern to retrieve data from it.}
     gem.email = "m@hawx.me"
     gem.homepage = "http://github.com/hawx/parsey"
     gem.authors = ["Joshua Hawxwell"]
