@@ -79,7 +79,7 @@ class Parsey
       }.flatten!
       
       parts.collect! {|i|
-        i.gsub!(/[^a-zA-Z0-9]/, '') unless i.nil?
+        i.gsub!(/[^a-zA-Z0-9-_]/, '') unless i.nil?
       }
       
       parts.delete_if {|i| i == ''}
