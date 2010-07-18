@@ -1,3 +1,5 @@
+require 'strscan'
+
 # Parsey is a very simple class to match a string with a pattern and retrieve data from it.
 # It takes a string, a pattern, and a hash of regexes. The pattern is filled with the regexes
 # and then that is matched to the string given.
@@ -20,7 +22,9 @@
 #
 class Parsey
 
-  attr_accessor :to_parse, :pattern, :partials, :data
+  class ParseError < StandardError; end
+
+  attr_accessor :to_parse, :pattern, :partials, :data, :scanner
   
   # Creates a new Parsey instance.
   #
@@ -54,6 +58,19 @@ class Parsey
     # replace optional '<stuff>'
     m.gsub!(/<(.+)>/) do
       "(#{$1})?"
+    end
+    
+    Regexp.new(m)
+  end
+  
+  def regex
+    m = @pattern.gsub(/\{([a-z-]+)}/) do
+      @partials[$1]
+    end
+    
+    # replace optional +<stuff>+
+    m.gsub!(/<(.+)>/) do
+      $1
     end
     
     Regexp.new(m)
@@ -101,12 +118,126 @@ class Parsey
   #   the data retrieved from +to_parse+
   #
   def parse
-    @to_parse.match( self.regex ).captures.each_with_index do |item, i|
-      unless self.order[i].nil?
-        @data[ self.order[i] ] = item
+    match = @to_parse.match(regex).captures
+    pat = scan(@pattern)
+    reg = place(pat)
+    get(@to_parse, reg, pat)
+  end
+  
+  # Uses the parsed array to get the data and put it into a hash
+  #
+  # @param [String] str the string to parse
+  # @param [Regexp] reg the regex to use to get data from +str+
+  # @param [Array] pat the pattern created from #scan
+  def get(str, reg, pat)
+    match = str.match(reg).captures
+    pat2 = pat.delete_if {|i| i[0] == :text}
+    
+    i = 0
+    pat2.each do |part|
+      if part[0] == :tag
+        p match[i]
+      elsif part[0] == :optional
+        p get(
+      end
+      
+      i += 1
+    end
+  end
+  
+  # This is a front for r_place so that a regex is returned as expected
+  def place(pat)
+    Regexp.new(r_place(pat))
+  end
+  
+  # Puts the regexs in the correct place, but returns a string so it can
+  # still work recursively
+  def r_place(pat)
+    str = ''
+    pat.each do |b|
+      type = b[0]
+      content = b[1]
+      case type
+      when :tag
+        str << content
+      when :text
+        str << content
+      when :optional
+        str << "(#{r_place(content)})?"
       end
     end
-    @data
+    
+    str
+  end
+  
+  # @return [Array] of the form [[:type, content], [:optional, [[:type, content], ...]], ...]
+  def scan(str)
+    @scanner = StringScanner.new(str)
+    parsed = []
+    
+    until @scanner.eos?
+      a = scan_tags ||  a = scan_optionals ||  a = scan_text
+      parsed << a
+    end
+    
+    parsed
+  end
+  
+  # Find {tags}
+  def scan_tags
+    return unless @scanner.scan(/\{/)
+    content = scan_until_closed(:tag)
+    
+    raise ParseError unless @scanner.scan(/\}/) # no closing tag
+    raise NoPartialError unless @partials[content]
+    
+    [:tag, @partials[content]]
+  end
+  
+  # Find <tags>
+  def scan_optionals
+    return unless @scanner.scan(/</)
+    content = scan_until_closed(:optional)
+    
+    raise ParseError unless @scanner.scan(/>/) # no closing tag
+    
+    [:optional, scan(content)]
+  end
+  
+  # Check whether rest of text includes any tags
+  def scan_text
+    text = scan_until_tag
+    
+    if text.nil?
+      text = @scanner.rest
+      @scanner.clear
+    end
+    
+    [:text, text]
+  end
+  
+  # Scans the string until a tag is found then returns the string
+  # before the tag. If no match nil is returned.
+  def scan_until_tag
+    pos = @scanner.pos
+    if @scanner.scan_until(/(\{|<)/)
+      @scanner.pos -= @scanner.matched.size
+      @scanner.pre_match[pos..-1]
+    end
+  end
+  
+  def scan_until_closed(type)  
+    regex = nil
+    if type == :tag
+      regex = /\}/
+    elsif type == :optional
+      regex = />/
+    end
+    pos = @scanner.pos
+    if @scanner.scan_until(regex)
+      @scanner.pos -= @scanner.matched.size
+      @scanner.pre_match[pos..-1]
+    end
   end
   
   # This is a convenience method to allow you to easily parse something
@@ -128,3 +259,5 @@ class Parsey
   end
   
 end
+
+Parsey.new("my-string", "{word}-<{word}>", {'word' => '([a-z]+)'}).parse
