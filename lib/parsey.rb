@@ -224,7 +224,7 @@ class Parsey
   
   # ScanArray is an array of tokens created when scanning the pattern. 
   # It looks like this:
-  #  [[:block, 'what-'], [:optional, [[:text, "hi-"]]], [:text, "oh"]]
+  #   [[:block, 'what-'], [:optional, [[:text, "hi-"]]], [:text, "oh"]]
   #
   class ScanArray < Array
     
@@ -267,7 +267,7 @@ class Parsey
       end
       
       flat.reverse!
-      r = []
+      r = ScanArray.new
       while flat.size > 0
         r << [flat.pop, flat.pop]
       end
@@ -276,6 +276,32 @@ class Parsey
       r
     end
     
+    # Loops through the types and contents of each tag separately, passing them
+    # to the block given.
+    #
+    # @yield [Symbol, Object] gives the type and content of each block in turn
+    #
+    # @example
+    #  
+    #   sa = ScanArray.new([[:text, 'hey-'], 
+    #                       [:optional, 
+    #                         [[:block, '([a-z]+)'], 
+    #                          [:text, '-what']]
+    #                      ]])
+    #
+    #   sa.each_with_type do |type, content|
+    #     puts "#{type} -> #{content}"
+    #   end
+    #   #=> text -> hey-
+    #   #=> optional -> [[:block, "([a-z]+)"], [:text, "-what"]]
+    #  
+    def each_with_type(&blck)
+      ts = self.collect {|i| i[0]}
+      cs = self.collect {|i| i[1]}
+      (0...ts.size).each do |i|
+        yield(ts[i], cs[i])
+      end
+    end
+    
   end
-  
 end
