@@ -90,7 +90,7 @@ class Parsey
     match = @to_parse.match(self.regex).captures
     data = {}
     
-    flatten_pattern(self.scan).each_with_index do |block, i|
+    self.scan.flatten.each_with_index do |block, i|
       type = block[0]
       name = block[1]
       if (type == :block) && (match[i] != nil)
@@ -106,6 +106,7 @@ class Parsey
   # for r_scan, which resets +scanners+ and still returns the correct value.
   #
   # @see #r_scan
+  # @return [ScanArray]
   def scan
     r = self.r_scan(@pattern)
     @scanners =[]
@@ -116,10 +117,9 @@ class Parsey
   # and adds the result to +parsed+ until it reaches the end of +str+.
   #
   # @param [String] str the string to scan through
-  # @return [Array] 
-  #   of the form [[:type, content], [:optional, [[:type, content], ...]], ...]
+  # @return [ScanArray]
   def r_scan(str)
-    parsed = []
+    parsed = ScanArray.new
     
     @depth += 1
     @scanners[@depth] = StringScanner.new(str)
@@ -199,42 +199,6 @@ class Parsey
     end
   end
   
-  # Removes all :text nodes from +pat+ and puts :optional nodes contents' into the
-  # main array, and puts a nil in place
-  #
-  # @return [Array]
-  #
-  # @example
-  #
-  #   flatten_pattern([[:text, 'hey-'], [:optional, [:block, '([a-z]+)'], [:text, '-what']]])
-  #     #=> [[:text, 'hey'], [:optional, nil], [:block, '([a-z]+)'], [:text, '-what']]
-  #
-  def flatten_pattern(pat)
-    flat = pat.flatten
-    
-    indexes = []
-    flat.each_with_index do |v, i|
-      if v == :optional
-        indexes << i
-      end
-    end
-    
-    # Need to start from the back so as not to alter the indexes of the 
-    # other items when inserting
-    indexes.reverse.each do |i|
-      flat.insert(i+1, nil)
-    end
-    
-    flat.reverse!
-    r = []
-    while flat.size > 0
-      r << [flat.pop, flat.pop]
-    end
-    
-    r.delete_if {|i| i[0] == :text}
-    r
-  end
-  
   # Puts the regexps in the correct place, but returns a string so it can
   # still work recursively
   #
@@ -256,6 +220,62 @@ class Parsey
     end
     
     str
+  end
+  
+  # ScanArray is an array of tokens created when scanning the pattern. 
+  # It looks like this:
+  #  [[:block, 'what-'], [:optional, [[:text, "hi-"]]], [:text, "oh"]]
+  #
+  class ScanArray < Array
+    
+    # @see #flatten
+    def flatten!
+      self.replace(self.flatten)
+    end
+    
+    # Removes all :text nodes from +pat+ and puts :optional nodes contents' into the
+    # main array, and puts a nil in place
+    #
+    # @return [Array]
+    #
+    # @example
+    #  
+    #   sa = ScanArray.new([[:text, 'hey-'], 
+    #                       [:optional, 
+    #                         [[:block, '([a-z]+)'], 
+    #                          [:text, '-what']]
+    #                      ]])
+    #
+    #   sa.flatten
+    #     #=> [[:optional, nil], [:block, "([a-z]+)"]]
+    #
+    def flatten
+      # Flatten the array with Array#flatten before starting
+      flat = super
+      
+      indexes = []
+      flat.each_with_index do |v, i|
+        if v == :optional
+          indexes << i
+        end
+      end
+      
+      # Need to start from the back so as not to alter the indexes of the 
+      # other items when inserting
+      indexes.reverse.each do |i|
+        flat.insert(i+1, nil)
+      end
+      
+      flat.reverse!
+      r = []
+      while flat.size > 0
+        r << [flat.pop, flat.pop]
+      end
+      
+      r.delete_if {|i| i[0] == :text}
+      r
+    end
+    
   end
   
 end
