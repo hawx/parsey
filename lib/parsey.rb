@@ -18,13 +18,18 @@ require 'strscan'
 #     #=> {"folder"=>"my-folder", "file-name"=>"my file", "ext"=>"txt"}
 #
 #   Parsey.parse('my file.txt', '<{folder}/>{file-name}.{ext}', partials)
-#     #=> {"folder"=>nil, "file-name"=>"my file", "ext"=>"txt"}
+#     #=> {"file-name"=>"my file", "ext"=>"txt"}
 #
 class Parsey
 
   class ParseError < StandardError; end
 
-  attr_accessor :to_parse, :pattern, :partials, :data, :scanner
+  attr_accessor :to_parse, :pattern, :partials, :scanners
+  
+  # Depth keeps track of how many levels the optional blocks go down, so that the scanner
+  # to use can be properly tracked. Each level of recursion needs a new scanner object 
+  # to refer to or it will just clear the text that was stored.
+  attr_accessor :depth
   
   # Creates a new Parsey instance.
   #
@@ -40,208 +45,12 @@ class Parsey
     @pattern  = pattern
     @partials = partials
 
-    @data = {}
-  end
-  
-  # Runs through +pattern+ and replaces each of the keywords with the
-  # correct regex from +partials+. It then adds '()?' round any parts of
-  # the pattern marked optional. And turns the final string into a regex.
-  #
-  # @return [Regex] 
-  #   the regular expression to match against when parsing
-  #
-  def regex
-    m = @pattern.gsub(/\{([a-z-]+)\}/) do
-      @partials[$1]
-    end
-    
-    # replace optional '<stuff>'
-    m.gsub!(/<(.+)>/) do
-      "(#{$1})?"
-    end
-    
-    Regexp.new(m)
-  end
-  
-  def regex
-    m = @pattern.gsub(/\{([a-z-]+)}/) do
-      @partials[$1]
-    end
-    
-    # replace optional +<stuff>+
-    m.gsub!(/<(.+)>/) do
-      $1
-    end
-    
-    Regexp.new(m)
-  end
-  
-  # Gets the order of the different tags within the pattern. It inserts nil
-  # when it encounters an optional section so that it can easily be skipped
-  # during parsing.
-  #
-  # @return [Array]
-  #   the order in which the tags appear in the +pattern+
-  #
-  def order
-    if @pattern =~ /<(.+)>/
-      parts = @pattern.dup.split('<')
-      parts.insert(1, nil)
-      parts.collect! {|i| 
-        i.split('>') unless i.nil?
-      }.flatten!
-      
-      parts.collect! {|i| 
-        i.split('}') unless i.nil?
-      }.flatten!
-      
-      parts.collect! {|i|
-        i.gsub!(/[^a-zA-Z0-9_-]/, '') unless i.nil?
-      }
-      
-      parts.delete_if {|i| i == ''}
-      
-      return parts
-    else
-      parts = []
-      @pattern.gsub(/\{([a-z-]+)\}/) do
-        parts << $1
-      end
-      return parts
-    end
-  end
-  
-  # This does the parsing of +to_parse+ using +regex+. It fills the hash
-  # +data+ using +order+ to match the data up with the correct name.
-  #
-  # @return [Hash{String => String}] 
-  #   the data retrieved from +to_parse+
-  #
-  def parse
-    match = @to_parse.match(regex).captures
-    pat = scan(@pattern)
-    reg = place(pat)
-    get(@to_parse, reg, pat)
-  end
-  
-  # Uses the parsed array to get the data and put it into a hash
-  #
-  # @param [String] str the string to parse
-  # @param [Regexp] reg the regex to use to get data from +str+
-  # @param [Array] pat the pattern created from #scan
-  def get(str, reg, pat)
-    match = str.match(reg).captures
-    pat2 = pat.delete_if {|i| i[0] == :text}
-    
-    i = 0
-    pat2.each do |part|
-      if part[0] == :tag
-        p match[i]
-      elsif part[0] == :optional
-        p get(
-      end
-      
-      i += 1
-    end
-  end
-  
-  # This is a front for r_place so that a regex is returned as expected
-  def place(pat)
-    Regexp.new(r_place(pat))
-  end
-  
-  # Puts the regexs in the correct place, but returns a string so it can
-  # still work recursively
-  def r_place(pat)
-    str = ''
-    pat.each do |b|
-      type = b[0]
-      content = b[1]
-      case type
-      when :tag
-        str << content
-      when :text
-        str << content
-      when :optional
-        str << "(#{r_place(content)})?"
-      end
-    end
-    
-    str
-  end
-  
-  # @return [Array] of the form [[:type, content], [:optional, [[:type, content], ...]], ...]
-  def scan(str)
-    @scanner = StringScanner.new(str)
-    parsed = []
-    
-    until @scanner.eos?
-      a = scan_tags ||  a = scan_optionals ||  a = scan_text
-      parsed << a
-    end
-    
-    parsed
-  end
-  
-  # Find {tags}
-  def scan_tags
-    return unless @scanner.scan(/\{/)
-    content = scan_until_closed(:tag)
-    
-    raise ParseError unless @scanner.scan(/\}/) # no closing tag
-    raise NoPartialError unless @partials[content]
-    
-    [:tag, @partials[content]]
-  end
-  
-  # Find <tags>
-  def scan_optionals
-    return unless @scanner.scan(/</)
-    content = scan_until_closed(:optional)
-    
-    raise ParseError unless @scanner.scan(/>/) # no closing tag
-    
-    [:optional, scan(content)]
-  end
-  
-  # Check whether rest of text includes any tags
-  def scan_text
-    text = scan_until_tag
-    
-    if text.nil?
-      text = @scanner.rest
-      @scanner.clear
-    end
-    
-    [:text, text]
-  end
-  
-  # Scans the string until a tag is found then returns the string
-  # before the tag. If no match nil is returned.
-  def scan_until_tag
-    pos = @scanner.pos
-    if @scanner.scan_until(/(\{|<)/)
-      @scanner.pos -= @scanner.matched.size
-      @scanner.pre_match[pos..-1]
-    end
-  end
-  
-  def scan_until_closed(type)  
-    regex = nil
-    if type == :tag
-      regex = /\}/
-    elsif type == :optional
-      regex = />/
-    end
-    pos = @scanner.pos
-    if @scanner.scan_until(regex)
-      @scanner.pos -= @scanner.matched.size
-      @scanner.pre_match[pos..-1]
-    end
+    @scanners = []
+    @depth = -1
   end
   
   # This is a convenience method to allow you to easily parse something
-  # in just one go!
+  # in just one line
   #
   # @param [String] to_parse 
   #   the string which is to be parsed
@@ -258,6 +67,195 @@ class Parsey
     a.parse
   end
   
-end
+  # This is a front for r_place so that a regex is returned as expected
+  #
+  # @param [Array] pat the pattern to turn into a regular expression
+  # @return [Regexp] the regex that will be used for parsing
+  # @see r_place
+  def regex
+    Regexp.new(r_place(scan))
+  end
+  
+  # @return [StringScanner] the current scanner to use
+  def scanner
+    @scanners[@depth]
+  end
+  
+  # Finds matches from +to_parse+ using #regex. Then uses this data
+  # and the pattern created with #scan to match the data with names.
+  #
+  # @return [Hash{String => String}] 
+  #   the data taken fron +to_parse+
+  def parse
+    match = @to_parse.match(self.regex).captures
+    data = {}
+    
+    flatten_pattern(self.scan).each_with_index do |block, i|
+      type = block[0]
+      name = block[1]
+      if (type == :block) && (match[i] != nil)
+        data[name] = match[i]
+      end
+    end
+    
+    data
+  end
+  
+  
+  # Need to reset scanners after every full run, so this provides a front 
+  # for r_scan, which resets +scanners+ and still returns the correct value.
+  #
+  # @see #r_scan
+  def scan
+    r = self.r_scan(@pattern)
+    @scanners =[]
+    r
+  end
+  
+  # Creates a new StringScanner, then scans for blocks, optionals or text 
+  # and adds the result to +parsed+ until it reaches the end of +str+.
+  #
+  # @param [String] str the string to scan through
+  # @return [Array] 
+  #   of the form [[:type, content], [:optional, [[:type, content], ...]], ...]
+  def r_scan(str)
+    parsed = []
+    
+    @depth += 1
+    @scanners[@depth] = StringScanner.new(str)
+    until self.scanner.eos?
+      a = scan_blocks ||  a = scan_optionals ||  a = scan_text
+      parsed << a
+    end
+    @depth -= 1
+    
+    parsed
+  end
+  
+  # Finds next {...} in the StringScanner, and checks that it is closed.
+  #
+  # @return [Array] 
+  #   an array of the form [:block, ...]
+  def scan_blocks
+    return unless self.scanner.scan(/\{/)
+    content = scan_until(:block)
+    
+    raise ParseError unless self.scanner.scan(/\}/) # no closing block
+    raise NoPartialError unless @partials[content]
+    
+    [:block, content]
+  end
+  
+  # Finds next <...> in the StringScanner, and checks that it is closed.
+  # Then scans the contents of the optional block.
+  #
+  # @return [Array] 
+  #   an array of the form [:optional, [...]]
+  def scan_optionals
+    return unless self.scanner.scan(/</)
+    content = scan_until(:optional)
+    
+    raise ParseError unless self.scanner.scan(/>/) # no closing block
+    
+    [:optional, r_scan(content)]
+  end
+  
+  # Finds plain text, and checks whether there are any blocks left.
+  #
+  # @return [Array] 
+  #   text before next block, or rest of text in the form [:text, ...]
+  def scan_text
+    text = scan_until(:open)
+    
+    if text.nil?
+      text = self.scanner.rest
+      self.scanner.clear
+    end
+    
+    [:text, text]
+  end
 
-Parsey.new("my-string", "{word}-<{word}>", {'word' => '([a-z]+)'}).parse
+  # Scans the string until a tag is found of the type given.
+  #
+  # @param [Symbol] type of tag to look for
+  #   :block for a closing block tag +}+
+  #   :optional for a closing optional tag +>+
+  #   :open for an opening tag +{+ or +<+
+  # @return [String, nil] 
+  #   the text before the tag, or nil if no match found
+  def scan_until(type)
+    case type
+    when :block
+      regex = /\}/
+    when :optional
+      regex = />/
+    when :open
+      regex = /(\{|<)/
+    end
+    pos = self.scanner.pos
+    if self.scanner.scan_until(regex)
+      self.scanner.pos -= self.scanner.matched.size
+      self.scanner.pre_match[pos..-1]
+    end
+  end
+  
+  # Removes all :text nodes from +pat+ and puts :optional nodes contents' into the
+  # main array, and puts a nil in place
+  #
+  # @return [Array]
+  #
+  # @example
+  #
+  #   flatten_pattern([[:text, 'hey-'], [:optional, [:block, '([a-z]+)'], [:text, '-what']]])
+  #     #=> [[:text, 'hey'], [:optional, nil], [:block, '([a-z]+)'], [:text, '-what']]
+  #
+  def flatten_pattern(pat)
+    flat = pat.flatten
+    
+    indexes = []
+    flat.each_with_index do |v, i|
+      if v == :optional
+        indexes << i
+      end
+    end
+    
+    # Need to start from the back so as not to alter the indexes of the 
+    # other items when inserting
+    indexes.reverse.each do |i|
+      flat.insert(i+1, nil)
+    end
+    
+    flat.reverse!
+    r = []
+    while flat.size > 0
+      r << [flat.pop, flat.pop]
+    end
+    
+    r.delete_if {|i| i[0] == :text}
+    r
+  end
+  
+  # Puts the regexps in the correct place, but returns a string so it can
+  # still work recursively
+  #
+  # @param [Array] pat the pattern to turn into a regular expression
+  # @return [String] the regular expression as a string
+  def r_place(pat)
+    str = ''
+    pat.each do |b|
+      type = b[0]
+      content = b[1]
+      case type
+      when :block
+        str << @partials[content]
+      when :text
+        str << content
+      when :optional
+        str << "(#{r_place(content)})?"
+      end
+    end
+    
+    str
+  end
+  
+end
