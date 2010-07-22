@@ -1,8 +1,8 @@
 require 'strscan'
 
-# Parsey is a very simple class to match a string with a pattern and retrieve data from it.
-# It takes a string, a pattern, and a hash of regexes. The pattern is filled with the regexes
-# and then that is matched to the string given.
+# Parsey is a simple class to match a string with a pattern and retrieve data from it. It 
+# takes a string, a pattern, and a hash of regular expressions. The pattern is filled with the 
+# regular expressiobs and then that is matched to the string given.
 #
 # The pattern uses {} to surround the name of the regex it should be replaced with. You can
 # also use <> to surround parts of the pattern that are optional, though these obviously
@@ -90,11 +90,9 @@ class Parsey
     match = @to_parse.match(self.regex).captures
     data = {}
     
-    self.scan.flatten.each_with_index do |block, i|
-      type = block[0]
-      name = block[1]
-      if (type == :block) && (match[i] != nil)
-        data[name] = match[i]
+    self.scan.flatten.each_with_type_indexed do |t, c, i|
+      if (t == :block) && (match[i] != nil)
+        data[c] = match[i]
       end
     end
     
@@ -177,10 +175,10 @@ class Parsey
 
   # Scans the string until a tag is found of the type given.
   #
-  # @param [Symbol] type of tag to look for
-  #   :block for a closing block tag +}+
-  #   :optional for a closing optional tag +>+
-  #   :open for an opening tag +{+ or +<+
+  # @param [Symbol] type of tag to look for.
+  #   +:block+ for a closing block tag (+}+), 
+  #   +:optional+ for a closing optional tag (+>+), 
+  #   +:open+ for an opening tag (+{+ or +<+).
   # @return [String, nil] 
   #   the text before the tag, or nil if no match found
   def scan_until(type)
@@ -202,20 +200,18 @@ class Parsey
   # Puts the regexps in the correct place, but returns a string so it can
   # still work recursively
   #
-  # @param [Array] pat the pattern to turn into a regular expression
+  # @param [ScanArray] pat the pattern to turn into a regular expression
   # @return [String] the regular expression as a string
   def r_place(pat)
     str = ''
-    pat.each do |b|
-      type = b[0]
-      content = b[1]
-      case type
+    pat.each_with_type do |t, c|
+      case t
       when :block
-        str << @partials[content]
+        str << @partials[c]
       when :text
-        str << content
+        str << c
       when :optional
-        str << "(#{r_place(content)})?"
+        str << "(#{r_place(c)})?"
       end
     end
     
@@ -279,6 +275,7 @@ class Parsey
     # Loops through the types and contents of each tag separately, passing them
     # to the block given.
     #
+    # @return [StringScanner] returns self
     # @yield [Symbol, Object] gives the type and content of each block in turn
     #
     # @example
@@ -301,6 +298,18 @@ class Parsey
       (0...ts.size).each do |i|
         yield(ts[i], cs[i])
       end
+      self
+    end
+    
+    # @see #each_with_type
+    # @yield [Symbol, Object Integer] gives the type, content and index of each block in turn
+    def each_with_type_indexed(&blck)
+      ts = self.collect {|i| i[0]}
+      cs = self.collect {|i| i[1]}
+      (0...ts.size).each do |i|
+        yield(ts[i], cs[i], i)
+      end
+      self
     end
     
   end
